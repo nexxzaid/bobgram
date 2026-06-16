@@ -76,7 +76,8 @@ jobs:
             --buildNumber=${{ github.run_number }} \
             --configuration=release_arm64 \
             --codesigningInformationPath=build-system/fake-codesigning \
-            --outputBuildArtifactsPath=../build-output
+            --outputBuildArtifactsPath=../build-output \
+            --overrideXcodeVersion
 
       - name: Package IPA
         run: |
