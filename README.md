@@ -1,70 +1,56 @@
 # Bobgram
 
-Telegram iOS client, renamed to **Bobgram**.
+Telegram iOS client, renamed to **Bobgram**. Builds via GitHub Actions, installs free via Sideloadly.
 
-## Что это
+## Что нужно
 
-Форк [Telegram-iOS](https://github.com/TelegramMessenger/Telegram-iOS) с единственным изменением: название приложения изменено с **Telegram** на **Bobgram**. Подключается к серверам Telegram, все функции работают стандартно.
+- Аккаунт GitHub (бесплатно)
+- Аккаунт Apple ID (бесплатно, тот что уже есть на iPhone)
+- [Sideloadly](https://sideloadly.io) на Mac или Windows (бесплатно)
+- Telegram API ключи (бесплатно — ниже инструкция)
 
-## Как собрать (через GitHub Actions)
+**Денег не нужно.**
 
-### Шаг 1 — Получить Telegram API ключи
+## Шаг 1 — Получить Telegram API ключи
 
 1. Зайди на [my.telegram.org](https://my.telegram.org)
 2. Войди через свой номер телефона
 3. Перейди в **API development tools**
-4. Создай приложение, получи `api_id` и `api_hash`
+4. Создай приложение → получи `api_id` (число) и `api_hash` (строка)
 
-### Шаг 2 — Получить сертификат для подписи
+## Шаг 2 — Создать репо на GitHub и добавить секреты
 
-Нужен один из вариантов:
+1. Запушь этот репо на GitHub (если ещё не)
+2. Открой: **Settings → Secrets and variables → Actions → New repository secret**
 
-**Вариант A — Apple Developer аккаунт ($99/год)**
-- Даёт официальный сертификат
-- Приложение не истекает через 7 дней
-
-**Вариант B — Бесплатный Apple ID (через Xcode)**
-- Бесплатно
-- Приложение нужно переподписывать каждые 7 дней через AltStore/Sideloadly
-
-Для варианта A:
-1. Создай Distribution certificate в [Apple Developer](https://developer.apple.com)
-2. Создай App ID: `com.yourname.bobgram`
-3. Создай Provisioning Profile для этого App ID
-4. Скачай сертификат как `.p12` файл (в Keychain Access → Export)
-
-### Шаг 3 — Добавить секреты в GitHub
-
-В репозитории: **Settings → Secrets and variables → Actions → New repository secret**
-
-| Secret | Что туда положить |
-|--------|------------------|
+| Secret | Значение |
+|--------|----------|
 | `TELEGRAM_API_ID` | Число из my.telegram.org |
 | `TELEGRAM_API_HASH` | Хеш из my.telegram.org |
-| `CERT_P12_BASE64` | Сертификат в base64: `base64 -i cert.p12` |
-| `CERT_PASSWORD` | Пароль от .p12 файла |
-| `PROV_PROFILE_BASE64` | Профиль в base64: `base64 -i profile.mobileprovision` |
 
-### Шаг 4 — Запустить сборку
+## Шаг 3 — Запустить сборку
 
-1. Перейди во вкладку **Actions** в этом репо
+1. Перейди во вкладку **Actions**
 2. Выбери **Build Bobgram**
 3. Нажми **Run workflow**
-4. Жди ~1-2 часа (большой проект)
-5. Скачай `Bobgram-N.ipa` из артефактов
+4. Жди ~1-2 часа
+5. Скачай `Bobgram-N.ipa` из **Artifacts**
 
-### Шаг 5 — Установить на iPhone
+## Шаг 4 — Установить на iPhone через Sideloadly (бесплатно)
 
-**Если есть Developer аккаунт:**
-- Используй [Apple Configurator 2](https://apps.apple.com/app/apple-configurator-2/id1037126344) или [Xcode Devices](https://developer.apple.com/documentation/xcode/installing-your-app-on-a-device)
+1. Скачай [Sideloadly](https://sideloadly.io) на Mac или Windows
+2. Подключи iPhone к компьютеру кабелем
+3. Перетащи `Bobgram.ipa` в Sideloadly
+4. Введи свой Apple ID (тот что на iPhone) — пароль **не сохраняется**
+5. Нажми **Start**
 
-**Если бесплатный Apple ID:**
-- Установи [AltStore](https://altstore.io) на iPhone
-- Перетащи `.ipa` через AltStore
+> **Важно:** бесплатный Apple ID подписывает приложение на **7 дней**.  
+> Через 7 дней нужно повторить шаг 4 (IPA уже скачан, займёт 1 минуту).  
+> Или поставь [AltStore](https://altstore.io) — он переподписывает автоматически.
 
 ## Структура репо
 
 ```
-.github/workflows/build.yml   — GitHub Actions пайплайн
-scripts/patch.sh              — Скрипт замены Telegram → Bobgram
+build.yml   — GitHub Actions пайплайн (сборка IPA без сертификата)
+patch.sh    — Скрипт замены Telegram → Bobgram
 ```

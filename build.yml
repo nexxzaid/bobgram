@@ -15,11 +15,11 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      # ── 1. Checkout this repo (contains patches + scripts) ──────────────────
+      # ── 1. Checkout this repo ────────────────────────────────────────────────
       - name: Checkout bobgram repo
         uses: actions/checkout@v4
 
-      # ── 2. Clone Telegram-iOS source ────────────────────────────────────────
+      # ── 2. Clone Telegram-iOS source ─────────────────────────────────────────
       - name: Clone Telegram-iOS
         run: |
           TAG="${{ github.event.inputs.telegram_tag }}"
@@ -31,109 +31,79 @@ jobs:
               https://github.com/TelegramMessenger/Telegram-iOS.git
           fi
 
-      # ── 3. Select Xcode ─────────────────────────────────────────────────────
+      # ── 3. Select Xcode ──────────────────────────────────────────────────────
       - name: Select Xcode
         run: |
-          # Use latest available Xcode on this runner
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           xcodebuild -version
 
-      # ── 4. Install Python deps ───────────────────────────────────────────────
+      # ── 4. Install deps ───────────────────────────────────────────────────────
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install Bazel via Bazelisk
+      - name: Install Bazelisk
         run: |
           brew install bazelisk
           bazel version
 
-      # ── 5. Apply Bobgram name patches ────────────────────────────────────────
+      # ── 5. Apply Bobgram name patches ─────────────────────────────────────────
       - name: Patch name Telegram → Bobgram
-        run: bash scripts/patch.sh Telegram-iOS
+        run: bash patch.sh Telegram-iOS
 
-      # ── 6. Write Telegram API credentials ────────────────────────────────────
-      #    Set TELEGRAM_API_ID and TELEGRAM_API_HASH in repo Secrets
+      # ── 6. Write Telegram API credentials ─────────────────────────────────────
       - name: Write API config
-        env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         run: |
           CONFIG="Telegram-iOS/Config/BuildConfig.json"
           mkdir -p "$(dirname "$CONFIG")"
           cat > "$CONFIG" <<EOF
           {
-            "api_id": "$TELEGRAM_API_ID",
-            "api_hash": "$TELEGRAM_API_HASH"
+            "api_id": "20381570",
+            "api_hash": "798a326cc32879b69c56efa736aa0726"
           }
           EOF
 
-      # ── 7. Import signing certificate & provisioning profile ─────────────────
-      #    Set CERT_P12_BASE64, CERT_PASSWORD, PROV_PROFILE_BASE64 in Secrets
-      - name: Import signing credentials
-        env:
-          CERT_P12_BASE64: ${{ secrets.CERT_P12_BASE64 }}
-          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
-          PROV_PROFILE_BASE64: ${{ secrets.PROV_PROFILE_BASE64 }}
-        run: |
-          # Keychain
-          KEYCHAIN_PATH="$RUNNER_TEMP/bobgram.keychain-db"
-          KEYCHAIN_PWD="temp-password"
-          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
-
-          # Certificate
-          CERT_PATH="$RUNNER_TEMP/cert.p12"
-          echo "$CERT_P12_BASE64" | base64 --decode -o "$CERT_PATH"
-          security import "$CERT_PATH" -P "$CERT_PASSWORD" \
-            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH"
-
-          # Provisioning profile
-          PP_PATH="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$PP_PATH"
-          echo "$PROV_PROFILE_BASE64" | base64 --decode -o "$PP_PATH/bobgram.mobileprovision"
-
-          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
-          echo "KEYCHAIN_PWD=$KEYCHAIN_PWD" >> "$GITHUB_ENV"
-
-      # ── 8. Build ─────────────────────────────────────────────────────────────
+      # ── 7. Build (без подписи — для Sideloadly) ───────────────────────────────
       - name: Build Bobgram
         working-directory: Telegram-iOS
+        env:
+          CODE_SIGNING_ALLOWED: "NO"
+          CODE_SIGNING_REQUIRED: "NO"
+          CODE_SIGN_IDENTITY: ""
+          EXPANDED_CODE_SIGN_IDENTITY: ""
         run: |
           python3 build-system/Make/Make.py \
             --configuration=release_arm64 \
             --buildNumber=${{ github.run_number }} \
-            --version=1.0.${{ github.run_number }}
+            --version=1.0.${{ github.run_number }} \
+            --disableProvisioningProfiles || true
 
-      # ── 9. Export IPA ─────────────────────────────────────────────────────────
-      - name: Export IPA
+      # ── 8. Упаковать в IPA ────────────────────────────────────────────────────
+      - name: Package IPA
         run: |
-          # Telegram-iOS build puts output in build/ directory
-          IPA=$(find Telegram-iOS -name "*.ipa" | head -1)
-          if [ -z "$IPA" ]; then
-            echo "IPA not found, looking for .app to package..."
-            APP=$(find Telegram-iOS -name "*.app" -path "*/Release-iphoneos/*" | head -1)
-            mkdir -p output/Payload
-            cp -R "$APP" output/Payload/
-            cd output && zip -qr ../Bobgram.ipa Payload
-          else
-            cp "$IPA" Bobgram.ipa
-          fi
-          echo "IPA ready: $(ls -lh Bobgram.ipa)"
+          APP=$(find Telegram-iOS -name "*.app" \
+                -not -path "*/\.*" \
+                -not -name "*Tests*" \
+                | head -1)
 
-      # ── 10. Upload artifact ───────────────────────────────────────────────────
+          if [ -z "$APP" ]; then
+            echo "ERROR: .app not found"
+            find Telegram-iOS/build -type d -name "*.app" 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "Found: $APP"
+          mkdir -p output/Payload
+          cp -R "$APP" output/Payload/Bobgram.app
+          cd output && zip -qr ../Bobgram.ipa Payload
+          cd ..
+          echo "IPA size: $(du -sh Bobgram.ipa)"
+
+      # ── 9. Upload artifact ────────────────────────────────────────────────────
       - name: Upload Bobgram.ipa
         uses: actions/upload-artifact@v4
         with:
           name: Bobgram-${{ github.run_number }}.ipa
           path: Bobgram.ipa
-          retention-days: 7
-
-      # ── Cleanup keychain ──────────────────────────────────────────────────────
-      - name: Cleanup keychain
-        if: always()
-        run: |
-          security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          retention-days: 14
