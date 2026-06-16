@@ -52,33 +52,50 @@ jobs:
       - name: Patch name Telegram → Bobgram
         run: bash patch.sh Telegram-iOS
 
-      # ── 6. Write Telegram API credentials ─────────────────────────────────────
-      - name: Write API config
+      # ── 6. Prepare build config (читает шаблон, вставляет API ключи) ──────────
+      - name: Prepare Bobgram config
+        working-directory: Telegram-iOS
         env:
           TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
           TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         run: |
-          CONFIG="Telegram-iOS/Config/BuildConfig.json"
-          mkdir -p "$(dirname "$CONFIG")"
-          cat > "$CONFIG" <<EOF
-          {
-            "api_id": "$TELEGRAM_API_ID",
-            "api_hash": "$TELEGRAM_API_HASH"
-          }
-          EOF
+          echo "=== Template config ==="
+          cat build-system/template_minimal_development_configuration.json
+          echo ""
+          echo "=== Fake codesigning contents ==="
+          ls build-system/fake-codesigning/
 
-      # ── 7. Explore build system ───────────────────────────────────────────────
-      - name: Explore build system
-        working-directory: Telegram-iOS
-        run: |
-          echo "=== build subcommand help ==="
-          python3 build-system/Make/Make.py build --help 2>&1 || true
-          echo "=== JSON configs in build-system/ ==="
-          ls build-system/*.json 2>/dev/null || echo "(none)"
-          echo "=== build-system/ contents ==="
-          ls build-system/
+          python3 - <<'PYEOF'
+import json, os, sys
 
-      # ── 8. Build (без подписи — для Sideloadly) ───────────────────────────────
+with open('build-system/template_minimal_development_configuration.json') as f:
+    config = json.load(f)
+
+api_id  = os.environ.get('TELEGRAM_API_ID', '')
+api_hash = os.environ.get('TELEGRAM_API_HASH', '')
+
+def patch(obj):
+    if isinstance(obj, dict):
+        for k in list(obj.keys()):
+            if k in ('apiId', 'api_id'):
+                obj[k] = api_id
+            elif k in ('apiHash', 'api_hash'):
+                obj[k] = api_hash
+            else:
+                patch(obj[k])
+    elif isinstance(obj, list):
+        for item in obj:
+            patch(item)
+
+patch(config)
+
+with open('../bobgram-config.json', 'w') as f:
+    json.dump(config, f, indent=2)
+
+print('bobgram-config.json written')
+PYEOF
+
+      # ── 7. Build ──────────────────────────────────────────────────────────────
       - name: Build Bobgram
         working-directory: Telegram-iOS
         env:
@@ -87,32 +104,43 @@ jobs:
           CODE_SIGN_IDENTITY: ""
           EXPANDED_CODE_SIGN_IDENTITY: ""
         run: |
+          mkdir -p ../build-output
           python3 build-system/Make/Make.py build \
+            --configurationPath=../bobgram-config.json \
             --buildNumber=${{ github.run_number }} \
-            --version=1.0.${{ github.run_number }} || true
+            --configuration=release_arm64 \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --outputBuildArtifactsPath=../build-output
 
-      # ── 9. Упаковать в IPA ────────────────────────────────────────────────────
+      # ── 8. Найти или упаковать IPA ────────────────────────────────────────────
       - name: Package IPA
         run: |
-          APP=$(find Telegram-iOS -name "*.app" \
-                -not -path "*/\.*" \
-                -not -name "*Tests*" \
-                | head -1)
+          # outputBuildArtifactsPath уже кладёт IPA туда
+          IPA=$(find build-output -name "*.ipa" | head -1)
 
-          if [ -z "$APP" ]; then
-            echo "ERROR: .app not found"
-            find Telegram-iOS/build -type d -name "*.app" 2>/dev/null || true
-            exit 1
+          if [ -n "$IPA" ]; then
+            cp "$IPA" Bobgram.ipa
+            echo "IPA from build-output: $(ls -lh Bobgram.ipa)"
+          else
+            # Fallback: упаковать .app вручную
+            APP=$(find Telegram-iOS -name "*.app" \
+                  -not -path "*/\.*" \
+                  -not -name "*Tests*" \
+                  | head -1)
+            if [ -z "$APP" ]; then
+              echo "ERROR: neither .ipa nor .app found"
+              find . -name "*.app" -o -name "*.ipa" 2>/dev/null | head -20
+              exit 1
+            fi
+            echo "Packaging .app manually: $APP"
+            mkdir -p payload/Payload
+            cp -R "$APP" payload/Payload/Bobgram.app
+            cd payload && zip -qr ../Bobgram.ipa Payload
+            cd ..
+            echo "IPA packed: $(ls -lh Bobgram.ipa)"
           fi
 
-          echo "Found: $APP"
-          mkdir -p output/Payload
-          cp -R "$APP" output/Payload/Bobgram.app
-          cd output && zip -qr ../Bobgram.ipa Payload
-          cd ..
-          echo "IPA size: $(du -sh Bobgram.ipa)"
-
-      # ── 10. Upload artifact ───────────────────────────────────────────────────
+      # ── 9. Upload artifact ────────────────────────────────────────────────────
       - name: Upload Bobgram.ipa
         uses: actions/upload-artifact@v4
         with:
