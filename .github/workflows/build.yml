@@ -67,7 +67,18 @@ jobs:
           }
           EOF
 
-      # ── 7. Build (без подписи — для Sideloadly) ───────────────────────────────
+      # ── 7. Explore build system ───────────────────────────────────────────────
+      - name: Explore build system
+        working-directory: Telegram-iOS
+        run: |
+          echo "=== build subcommand help ==="
+          python3 build-system/Make/Make.py build --help 2>&1 || true
+          echo "=== JSON configs in build-system/ ==="
+          ls build-system/*.json 2>/dev/null || echo "(none)"
+          echo "=== build-system/ contents ==="
+          ls build-system/
+
+      # ── 8. Build (без подписи — для Sideloadly) ───────────────────────────────
       - name: Build Bobgram
         working-directory: Telegram-iOS
         env:
@@ -76,13 +87,11 @@ jobs:
           CODE_SIGN_IDENTITY: ""
           EXPANDED_CODE_SIGN_IDENTITY: ""
         run: |
-          python3 build-system/Make/Make.py \
-            --configuration=release_arm64 \
+          python3 build-system/Make/Make.py build \
             --buildNumber=${{ github.run_number }} \
-            --version=1.0.${{ github.run_number }} \
-            --disableProvisioningProfiles || true
+            --version=1.0.${{ github.run_number }} || true
 
-      # ── 8. Упаковать в IPA ────────────────────────────────────────────────────
+      # ── 9. Упаковать в IPA ────────────────────────────────────────────────────
       - name: Package IPA
         run: |
           APP=$(find Telegram-iOS -name "*.app" \
@@ -103,7 +112,7 @@ jobs:
           cd ..
           echo "IPA size: $(du -sh Bobgram.ipa)"
 
-      # ── 9. Upload artifact ────────────────────────────────────────────────────
+      # ── 10. Upload artifact ───────────────────────────────────────────────────
       - name: Upload Bobgram.ipa
         uses: actions/upload-artifact@v4
         with:
