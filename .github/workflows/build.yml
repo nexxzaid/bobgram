@@ -71,13 +71,12 @@ jobs:
           EXPANDED_CODE_SIGN_IDENTITY: ""
         run: |
           mkdir -p ../build-output
-          python3 build-system/Make/Make.py build \
+          python3 build-system/Make/Make.py --overrideXcodeVersion build \
             --configurationPath=../bobgram-config.json \
             --buildNumber=${{ github.run_number }} \
             --configuration=release_arm64 \
             --codesigningInformationPath=build-system/fake-codesigning \
-            --outputBuildArtifactsPath=../build-output \
-            --overrideXcodeVersion
+            --outputBuildArtifactsPath=../build-output
 
       - name: Package IPA
         run: |
